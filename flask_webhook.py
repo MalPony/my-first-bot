@@ -5,7 +5,7 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Update
 import json
 
 TOKEN = "8207602384:AAFiYaBs9ho1vaN_Y1E53zgn0KiOYy0onB8"
@@ -101,20 +101,22 @@ app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Этот endpoint будет принимать запросы от Telegram"""
+    """Этот endpoint принимает запросы от Telegram"""
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = json.loads(json_string)
-        
-        # Запускаем асинхронную обработку в event loop
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        loop.run_until_complete(dp.feed_update(bot=bot, update=update))
-        
-        return 'OK', 200
+        try:
+            json_string = request.get_data().decode('utf-8')
+            # Парсим JSON в объект Update (для aiogram 3.x)
+            update = Update.model_validate_json(json_string, context={"bot": bot})
+            
+            # Запускаем асинхронную обработку
+            asyncio.run(dp.feed_update(bot=bot, update=update))
+            
+            return 'OK', 200
+        except Exception as e:
+            print(f"Ошибка при обработке webhook: {e}")
+            import traceback
+            traceback.print_exc()
+            return 'Error', 500
     return 'Bad Request', 400
 
 
