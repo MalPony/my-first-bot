@@ -100,14 +100,19 @@ async def dummy_handler(message: Message):
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     """Этот endpoint будет принимать запросы от Telegram"""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = json.loads(json_string)
         
-        # Передаем обновление в диспетчер aiogram
-        await dp.feed_update(bot=bot, update=update)
+        # Запускаем асинхронную обработку в event loop
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(dp.feed_update(bot=bot, update=update))
         
         return 'OK', 200
     return 'Bad Request', 400
