@@ -1,0 +1,4 @@
+aiogram==3.0.0
+aiohttp==3.9.1
+flask==3.0.0
+gunicorn==26.0.0
