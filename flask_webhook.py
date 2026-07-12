@@ -1,17 +1,28 @@
-from flask import Flask, request
 import asyncio
-import json
 import os
+import logging
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Update
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-# --- ПОЛУЧАЕМ ТОКЕН ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ---
+# --- НАСТРОЙКА ЛОГОВ ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- ПОЛУЧАЕМ ТОКЕН ---
 TOKEN = os.getenv('BOT_TOKEN')
-print(f"🔑 Токен получен: {'ДА' if TOKEN else 'НЕТ'}")
+logger.info(f"🔑 Токен получен: {'ДА' if TOKEN else 'НЕТ'}")
+
+# --- ПОЛУЧАЕМ URL ДЛЯ ВЕБХУКА ---
+# Bothost дает нам URL вида https://xxx.bothost.tech
+WEBHOOK_HOST = os.getenv('WEBHOOK_URL', 'https://bot-1783861378-1686-botcreater.bothost.tech')
+WEBHOOK_PATH = '/webhook'
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 # --- FSM И БОТ ---
 storage = MemoryStorage()
@@ -97,66 +108,56 @@ async def dummy_handler(message: Message):
     await message.answer("Я сейчас занят опросом. Напиши /cancel, чтобы отменить, или ответь на мой вопрос.")
 
 
-# --- FLASK ПРИЛОЖЕНИЕ ---
-app = Flask(__name__)
+# --- ВЕБ-СЕРВЕР (AIOHTTP) ---
+async def on_startup(bot: Bot):
+    """Устанавливает вебхук при старте сервера"""
+    logger.info(f"🚀 Устанавливаем webhook на: {WEBHOOK_URL}")
+    await bot.set_webhook(
+        url=WEBHOOK_URL,
+        drop_pending_updates=True,
+        allowed_updates=["message", "callback_query"]
+    )
+    logger.info("✅ Вебхук установлен!")
 
-# Создаем event loop ОДИН РАЗ при старте
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+
+async def on_shutdown(bot: Bot):
+    """Удаляет вебхук при остановке сервера"""
+    logger.info("🛑 Удаляем вебхук...")
+    await bot.delete_webhook()
+    logger.info("✅ Вебхук удален!")
 
 
-@app.route('/')
-def health_check():
+# --- Health check ---
+async def health_check(request):
     """Health check для Bothost"""
-    print("📍 Health check запрос получен!")
-    return 'OK', 200
+    logger.info("📍 Health check запрос получен!")
+    return web.Response(text='OK', status=200)
 
 
-@app.route('/health')
-def health():
-    """Альтернативный health check"""
-    return {'status': 'healthy'}, 200
-
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """
-    Этот endpoint принимает POST-запросы от Telegram.
-    """
-    print("=" * 50)
-    print("ПОЛУЧЕН ЗАПРОС НА /webhook")
-    print("=" * 50)
+def main():
+    """Запуск сервера"""
+    # Создаем aiohttp приложение
+    app = web.Application()
     
-    if request.headers.get('content-type') == 'application/json':
-        try:
-            json_string = request.get_data().decode('utf-8')
-            print(f"Получен JSON: {json_string[:200]}...")
-            
-            # Парсим JSON в объект Update
-            update = Update.model_validate(json.loads(json_string))
-            print(f"Update распарсен: {update.update_id}")
-            
-            # Запускаем асинхронную обработку
-            print("Запускаем обработку...")
-            loop.run_until_complete(dp.feed_update(bot=bot, update=update))
-            print("Обработка завершена!")
-            
-            return 'OK', 200
-        except Exception as e:
-            print(f"❌ ОШИБКА: {e}")
-            import traceback
-            traceback.print_exc()
-            return 'Error', 500
+    # Регистрируем health check
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
     
-    print("❌ Неверный content-type")
-    return 'Bad Request', 400
-
-
-# --- ЗАПУСК FLASK ---
-if __name__ == '__main__':
+    # Регистрируем обработчик webhook от aiogram
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+    
+    # Настраиваем lifecycle (startup/shutdown)
+    setup_application(app, dp, bot=bot, on_startup=on_startup, on_shutdown=on_shutdown)
+    
+    # Запускаем сервер
     port = int(os.getenv("PORT", 8080))
-    print(f"🚀 Запускаем Flask на 0.0.0.0:{port}")
-    print(f"📊 Переменные окружения: PORT={os.getenv('PORT', 'не установлен')}")
-    
-    # ВАЖНО: Явно указываем host='0.0.0.0' чтобы Flask слушал на ВСЕХ интерфейсах
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
+    logger.info(f"🚀 Запускаем aiohttp server на 0.0.0.0:{port}")
+    web.run_app(app, host="0.0.0.0", port=port)
+
+
+if __name__ == '__main__':
+    main()
