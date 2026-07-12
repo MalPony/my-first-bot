@@ -108,6 +108,7 @@ asyncio.set_event_loop(loop)
 @app.route('/')
 def health_check():
     """Health check для Bothost"""
+    print("📍 Health check запрос получен!")
     return 'OK', 200
 
 
@@ -151,8 +152,11 @@ def webhook():
     return 'Bad Request', 400
 
 
-# --- ЗАПУСК FLASK НАПРЯМУЮ (БЕЗ GUNICORN) ---
+# --- ЗАПУСК FLASK ---
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8080))
-    print(f"🚀 Запускаем Flask на порту {port}")
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    print(f"🚀 Запускаем Flask на 0.0.0.0:{port}")
+    print(f"📊 Переменные окружения: PORT={os.getenv('PORT', 'не установлен')}")
+    
+    # ВАЖНО: Явно указываем host='0.0.0.0' чтобы Flask слушал на ВСЕХ интерфейсах
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
