@@ -5,10 +5,11 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Update
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import json
+import os
 
-TOKEN = "8207602384:AAFiYaBs9ho1vaN_Y1E53zgn0KiOYy0onB8"
+TOKEN = os.getenv('BOT_TOKEN')
 
 # --- FSM И БОТ ---
 storage = MemoryStorage()
@@ -100,23 +101,16 @@ async def dummy_handler(message: Message):
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
-def webhook():
-    """Этот endpoint принимает запросы от Telegram"""
+async def webhook():
+    """Этот endpoint будет принимать запросы от Telegram"""
     if request.headers.get('content-type') == 'application/json':
-        try:
-            json_string = request.get_data().decode('utf-8')
-            # Парсим JSON в объект Update (для aiogram 3.x)
-            update = Update.model_validate_json(json_string, context={"bot": bot})
-            
-            # Запускаем асинхронную обработку
-            asyncio.run(dp.feed_update(bot=bot, update=update))
-            
-            return 'OK', 200
-        except Exception as e:
-            print(f"Ошибка при обработке webhook: {e}")
-            import traceback
-            traceback.print_exc()
-            return 'Error', 500
+        json_string = request.get_data().decode('utf-8')
+        update = json.loads(json_string)
+        
+        # Передаем обновление в диспетчер aiogram
+        await dp.feed_update(bot=bot, update=update)
+        
+        return 'OK', 200
     return 'Bad Request', 400
 
 
@@ -129,5 +123,5 @@ async def setup_webhook():
 
 
 if __name__ == '__main__':
-    # Локальный запуск для тестов
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.getenv("PORT", 8080))
+    web.run_app(app, host="0.0.0.0", port=port)
