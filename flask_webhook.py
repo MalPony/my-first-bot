@@ -99,14 +99,14 @@ async def dummy_handler(message: Message):
 # --- FLASK ПРИЛОЖЕНИЕ ---
 app = Flask(__name__)
 
-# Создаем event loop ОДИН РАЗ при старте приложения
+# Создаем event loop ОДИН РАЗ при импорте модуля
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 
 @app.route('/')
 def health_check():
-    """Health check для Bothost (проверяет, что бот жив)"""
+    """Health check для Bothost"""
     return 'OK', 200
 
 
@@ -120,10 +120,6 @@ def health():
 def webhook():
     """
     Этот endpoint принимает POST-запросы от Telegram.
-    Flask синхронный, но aiogram асинхронный, поэтому мы:
-    1. Получаем JSON от Telegram
-    2. Парсим его в объект Update
-    3. Запускаем асинхронную обработку через loop.run_until_complete()
     """
     print("=" * 50)
     print("ПОЛУЧЕН ЗАПРОС НА /webhook")
@@ -134,11 +130,11 @@ def webhook():
             json_string = request.get_data().decode('utf-8')
             print(f"Получен JSON: {json_string[:200]}...")
             
-            # Парсим JSON в объект Update (правильный способ для aiogram 3.x)
+            # Парсим JSON в объект Update
             update = Update.model_validate(json.loads(json_string))
             print(f"Update распарсен: {update.update_id}")
             
-            # Запускаем асинхронную обработку через существующий loop
+            # Запускаем асинхронную обработку
             print("Запускаем обработку...")
             loop.run_until_complete(dp.feed_update(bot=bot, update=update))
             print("Обработка завершена!")
@@ -154,28 +150,7 @@ def webhook():
     return 'Bad Request', 400
 
 
-# --- ЗАПУСК СЕРВЕРА ---
-if __name__ == '__main__':
-    import gunicorn.app.base
-    
-    class StandaloneApplication(gunicorn.app.base.BaseApplication):
-        def __init__(self, app, options=None):
-            self.options = options or {}
-            self.application = app
-            super().__init__()
-
-        def load_config(self):
-            for key, value in self.options.items():
-                self.cfg.set(key.lower(), value)
-
-        def load(self):
-            return self.application
-
-    port = int(os.getenv("PORT", 80))
-    options = {
-        'bind': f'0.0.0.0:{port}',
-        'workers': 1,
-        'timeout': 120,
-        'accesslog': '-'  # Логируем запросы в stdout
-    }
-    StandaloneApplication(app, options).run()
+# --- УБИРАЕМ ЗАПУСК GUNICORN ---
+# Bothost сам запустит Flask через свой WSGI-сервер
+# if __name__ == '__main__':
+#     ...
