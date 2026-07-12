@@ -1,21 +1,21 @@
 from flask import Flask, request
 import asyncio
+import json
+import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-import json
-import os
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Update
 
+# --- ПОЛУЧАЕМ ТОКЕН ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ---
 TOKEN = os.getenv('BOT_TOKEN')
 
 # --- FSM И БОТ ---
 storage = MemoryStorage()
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=storage)
-
 
 # --- СОСТОЯНИЯ ---
 class Form(StatesGroup):
@@ -31,7 +31,7 @@ def get_main_keyboard():
     ])
 
 
-# --- ОБРАБОТЧИКИ (те же, что и раньше) ---
+# --- ОБРАБОТЧИКИ БОТА ---
 
 @dp.message(CommandStart())
 async def process_start(message: Message, state: FSMContext):
@@ -50,7 +50,6 @@ async def start_survey(callback: CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(F.data == "cancel")
-@dp.callback_query(StateFilter('*'))
 async def cancel_handler(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
@@ -100,28 +99,62 @@ async def dummy_handler(message: Message):
 # --- FLASK ПРИЛОЖЕНИЕ ---
 app = Flask(__name__)
 
+# Создаем event loop ОДИН РАЗ при старте приложения
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+
+@app.route('/')
+def health_check():
+    """Health check для Bothost (проверяет, что бот жив)"""
+    return 'OK', 200
+
+
+@app.route('/health')
+def health():
+    """Альтернативный health check"""
+    return {'status': 'healthy'}, 200
+
+
 @app.route('/webhook', methods=['POST'])
-async def webhook():
-    """Этот endpoint будет принимать запросы от Telegram"""
+def webhook():
+    """
+    Этот endpoint принимает POST-запросы от Telegram.
+    Flask синхронный, но aiogram асинхронный, поэтому мы:
+    1. Получаем JSON от Telegram
+    2. Парсим его в объект Update
+    3. Запускаем асинхронную обработку через loop.run_until_complete()
+    """
+    print("=" * 50)
+    print("ПОЛУЧЕН ЗАПРОС НА /webhook")
+    print("=" * 50)
+    
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = json.loads(json_string)
-        
-        # Передаем обновление в диспетчер aiogram
-        await dp.feed_update(bot=bot, update=update)
-        
-        return 'OK', 200
+        try:
+            json_string = request.get_data().decode('utf-8')
+            print(f"Получен JSON: {json_string[:200]}...")
+            
+            # Парсим JSON в объект Update (правильный способ для aiogram 3.x)
+            update = Update.model_validate(json.loads(json_string))
+            print(f"Update распарсен: {update.update_id}")
+            
+            # Запускаем асинхронную обработку через существующий loop
+            print("Запускаем обработку...")
+            loop.run_until_complete(dp.feed_update(bot=bot, update=update))
+            print("Обработка завершена!")
+            
+            return 'OK', 200
+        except Exception as e:
+            print(f"❌ ОШИБКА: {e}")
+            import traceback
+            traceback.print_exc()
+            return 'Error', 500
+    
+    print("❌ Неверный content-type")
     return 'Bad Request', 400
 
 
-# --- УСТАНОВКА ВЕБХУКА ---
-async def setup_webhook():
-    """Устанавливаем вебхук при запуске"""
-    webhook_url = "https://botcreater.pythonanywhere.com/webhook"
-    await bot.set_webhook(url=webhook_url)
-    print(f"Вебхук установлен на {webhook_url}")
-
-
+# --- ЗАПУСК СЕРВЕРА ---
 if __name__ == '__main__':
     import gunicorn.app.base
     
@@ -142,6 +175,7 @@ if __name__ == '__main__':
     options = {
         'bind': f'0.0.0.0:{port}',
         'workers': 1,
-        'timeout': 120
+        'timeout': 120,
+        'accesslog': '-'  # Логируем запросы в stdout
     }
     StandaloneApplication(app, options).run()
