@@ -11,6 +11,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 # --- ПОЛУЧАЕМ ТОКЕН ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ---
 TOKEN = os.getenv('BOT_TOKEN')
+print(f"🔑 Токен получен: {'ДА' if TOKEN else 'НЕТ'}")
 
 # --- FSM И БОТ ---
 storage = MemoryStorage()
@@ -99,7 +100,7 @@ async def dummy_handler(message: Message):
 # --- FLASK ПРИЛОЖЕНИЕ ---
 app = Flask(__name__)
 
-# Создаем event loop ОДИН РАЗ при импорте модуля
+# Создаем event loop ОДИН РАЗ при старте
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -150,7 +151,8 @@ def webhook():
     return 'Bad Request', 400
 
 
-# --- УБИРАЕМ ЗАПУСК GUNICORN ---
-# Bothost сам запустит Flask через свой WSGI-сервер
-# if __name__ == '__main__':
-#     ...
+# --- ЗАПУСК FLASK НАПРЯМУЮ (БЕЗ GUNICORN) ---
+if __name__ == '__main__':
+    port = int(os.getenv("PORT", 8080))
+    print(f"🚀 Запускаем Flask на порту {port}")
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
